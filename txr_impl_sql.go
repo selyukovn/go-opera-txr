@@ -124,6 +124,8 @@ func (t *TxrImplSql) tx(
 
 	defer func() {
 		if sqlTx != nil {
+			// According to the inner code, rollback will not be executed, if transaction is already done.
+			// So if transaction was committed (successfully or not), we should not expect an additional rollback.
 			_ = sqlTx.Rollback()
 		}
 	}()
