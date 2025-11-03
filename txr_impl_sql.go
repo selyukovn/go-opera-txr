@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -16,6 +15,7 @@ type TxrImplSql struct {
 	db                       *sql.DB
 	deadlockMaxRetries       uint
 	deadlockMinRetryInterval time.Duration
+	deadlockDetectionFn      func(error) bool
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -26,11 +26,13 @@ func NewTxrImplSql(
 	db *sql.DB,
 	deadlockMaxRetries uint,
 	deadlockMinRetryInterval time.Duration,
+	deadlockDetectionFn func(error) bool,
 ) *TxrImplSql {
 	return &TxrImplSql{
 		db:                       db,
 		deadlockMaxRetries:       deadlockMaxRetries,
 		deadlockMinRetryInterval: deadlockMinRetryInterval,
+		deadlockDetectionFn:      deadlockDetectionFn,
 	}
 }
 
@@ -78,9 +80,7 @@ func (t *TxrImplSql) processTx(
 			break
 		}
 
-		if strings.Contains(strings.ToLower(err.Error()), "deadlock") ||
-			strings.Contains(strings.ToLower(err.Error()), "lock wait timeout") ||
-			strings.Contains(strings.ToLower(err.Error()), "could not obtain lock") {
+		if t.deadlockDetectionFn(err) {
 			if deadlockRetries == t.deadlockMaxRetries {
 				return fmt.Errorf(
 					"%T : deadlock retry limit (%d) exceeded. Originally caused by : %w",
