@@ -85,6 +85,11 @@ which can negatively affect the domain layer and introduce additional overhead.
 ```go
 package some_operational_layer_package
 
+import (
+	"context"
+	// ...
+)
+
 type OperationLayerService struct {
 	// ...
 	txr     opera_txr.TxrInterface
@@ -111,6 +116,21 @@ func (s *OperationLayerService) SomeUseCase(email Email) {
 	}); err != nil {
 		// ...
 	}
+
+	// ...
+}
+
+// ...
+
+func (r *AccountRepositoryImplSql) Update(ctx context.Context, acc *Account) error {
+	// Here, inside SQL-implementation of the repository,
+	// we expect, that SQL-implementation of the opera_txr.TxrInterface is used,
+	// and TxCtx.Tx provides *sql.Tx value.
+	// So this is how you can get actual transaction in this case: 
+	tx := ctx.(*opera_txr.TxCtx).Tx().(*sql.Tx)
+
+	// ...and then use it in usual way
+	result, err := tx.ExecContext(ctx, "UPDATE ...")
 
 	// ...
 }

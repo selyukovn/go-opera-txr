@@ -11,17 +11,41 @@ import (
 // Struct
 // ---------------------------------------------------------------------------------------------------------------------
 
+// TxrImplSql is a SQL implementation of the TxrInterface.
+//
+// It automatically retries transactions on deadlock errors using exponential backoff.
+// The retry behavior is configurable via:
+//   - Max retries count.
+//   - Minimum retry interval (base for exponential backoff).
+//   - Custom deadlock detection function (since SQL drivers use different error codes/messages).
+//
+// In this implementation, TxCtx.Tx holds a pointer to a sql.Tx instance.
+// To retrieve it in a repository method from context see the code example below:
+//
+//	func (r *SomeRepoOrSo) SomeMethod(ctx context.Context, ...) ... {
+//	    tx := ctx.(*opera_txr.TxCtx).Tx().(*sql.Tx)
+//	    // ...
+//	}
 type TxrImplSql struct {
-	db                       *sql.DB
-	deadlockMaxRetries       uint
+	db *sql.DB
+
+	// Specifies how many times to retry a transaction if a deadlock is detected.
+	deadlockMaxRetries uint
+
+	// The initial wait duration between retries. Subsequent retries use exponential backoff (e.g., interval * 2^n).
 	deadlockMinRetryInterval time.Duration
-	deadlockDetectionFn      func(error) bool
+
+	// Determines whether an error indicates a deadlock (e.g., MySQL error code = 1213).
+	deadlockDetectionFn func(error) bool
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Create
 // ---------------------------------------------------------------------------------------------------------------------
 
+// NewTxrImplSql
+//
+// See TxrImplSql
 func NewTxrImplSql(
 	db *sql.DB,
 	deadlockMaxRetries uint,
