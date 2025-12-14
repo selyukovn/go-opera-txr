@@ -166,57 +166,24 @@ func (t *TxrImplSql) tx(
 		return err
 	}
 
-	err = t.txFn(ctx, sqlTx, fn)
+	txCtx := WithTxCtx(ctx, sqlTx)
+
+	// `fn` is fully responsible for the context checking.
+	// Additional control here, e.g. executing `fn` in a goroutine concurrently to ctx.Done within a select statement,
+	// pushes to relay panic from that goroutine, but this cuts off the stack trace of the recovered panic,
+	// because stack trace is calculated from the panic call point -- i.e. from relay point, not from the source.
+	// Adding stack trace from the recovered panic to the relayed one is rather impossible,
+	// because panic can contain any type of the value: it can be just a string message, a regular error,
+	// a specific type of error, a slice of errors, etc. -- there is no careful general way to add a stack trace
+	// to the value without breaking consistency and complexity, e.g. by wrapping into some TxrPanic type on relay.
+	// So, in case of panic for the client code it is more important to:
+	// - get full stack trace
+	// - get the original panic value
+	// - do this in clean default way, i.e. without additional unwrapping, etc.
+	err = fn(txCtx)
 
 	if err == nil && isWritable {
 		err = sqlTx.Commit()
-	}
-
-	return err
-}
-
-func (t *TxrImplSql) txFn(
-	ctx context.Context,
-	sqlTx *sql.Tx,
-	fn func(ctx *TxCtx) error,
-) error {
-	// Here we block current goroutine until ctx is done or fn is completed.
-	// Fn runs in a separate goroutine, but appears synchronous to client code
-	// due to blocking by the select statement and panic propagation.
-
-	var err error
-
-	txCtx := WithTxCtx(ctx, sqlTx)
-
-	type fnChanResult = struct {
-		err   error
-		panic any
-	}
-
-	fnChan := make(chan fnChanResult)
-
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				fnChan <- fnChanResult{panic: r}
-			}
-			close(fnChan)
-		}()
-
-		err := fn(txCtx)
-
-		fnChan <- fnChanResult{err: err}
-	}()
-
-	select {
-	case <-ctx.Done():
-		err = ctx.Err()
-	case r := <-fnChan:
-		if r.panic != nil {
-			panic(r.panic)
-		}
-
-		err = r.err
 	}
 
 	return err

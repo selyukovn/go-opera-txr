@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
+	"runtime/debug"
 	"testing"
 	"time"
 )
@@ -44,6 +45,10 @@ func testHelper_TxrImplSql_Tx_setupMockDB(t *testing.T) (*sql.DB, sqlmock.Sqlmoc
 		_ = db.Close()
 	})
 	return db, mock
+}
+
+func testHelper_TxrImplSql_Tx_namedMethodForStackTrace(fn func()) {
+	fn()
 }
 
 func Test_TxrImplSql_Tx(t *testing.T) {
@@ -213,12 +218,46 @@ func Test_TxrImplSql_Tx(t *testing.T) {
 		mock.ExpectRollback()
 
 		err := txr.Tx(ctx, func(ctx *TxCtx) error {
-			time.Sleep(timeout * 2)
-			return errors.New("should not reach here")
+			// Responsibility is fully on dev, not on the `Txr.Tx` anymore.
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(timeout * 2):
+				return errors.New("should not reach here")
+			}
 		})
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	// Stack trace on panic
+	// --------------------------------
+
+	t.Run("FullStackTraceOnPanic", func(t *testing.T) {
+		ctx := context.TODO()
+		db, mock := testHelper_TxrImplSql_Tx_setupMockDB(t)
+		txr := NewTxrImplSql(db, 3, 100*time.Millisecond, func(err error) bool { return false })
+		mock.ExpectBegin()
+		mock.ExpectRollback()
+
+		func() {
+			defer func() {
+				r := recover()
+				assert.NotNil(t, r)
+				s := string(debug.Stack())
+				assert.Contains(t, s, "testHelper_TxrImplSql_Tx_namedMethodForStackTrace")
+			}()
+
+			_ = txr.Tx(ctx, func(ctx *TxCtx) error {
+				testHelper_TxrImplSql_Tx_namedMethodForStackTrace(func() {
+					panic([]int{1, 2, 3})
+				})
+				return nil
+			})
+		}()
+
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 }
