@@ -1,3 +1,15 @@
+## [0.3.0] - 2025-12-14
+
+### BREAKING CHANGES
+- `TxrImplSql.Tx` function is no longer responsible for checking `ctx.Done` during transaction execution.
+  It required the transaction to be executed in a goroutine, and the panic propagation --
+  so, the stack trace from the original panic point to the propagation point was lost,
+  since the stack trace was counted from the panic propagation point, not from the original one.
+
+### IMPROVEMENTS
+- Simplified README.md
+
+---
 
 ## [0.2.0] - 2025-11-04
 
